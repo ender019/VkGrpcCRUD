@@ -24,16 +24,6 @@ public class TarantoolConfig {
     private String password;
 
     @Bean
-    public TarantoolCrudClient crudClientSettings() throws Exception{
-        return TarantoolFactory.crud()
-                .withHost(host)
-                .withPort(port)
-                .withUser(username)
-                .withPassword(password)
-                .build();
-    }
-
-    @Bean
     public TarantoolBoxClient boxClientSettings() throws Exception{
         return TarantoolFactory.box()
                 .withHost(host)
