@@ -83,15 +83,14 @@ public class KvServiceImpl extends KvServiceGrpc.KvServiceImplBase {
                             .build());
         };
 
-        CompletableFuture.runAsync(
-                () -> repository.findRangeByKey(request.getKeySince(), request.getKeyTo(), consumer)
-        ).whenComplete((res, ex) -> {
-            if (ex != null) {
-                LOG.log(Level.WARNING, "Error getting values", ex);
-                responseObserver.onError(Status.INTERNAL.withCause(ex).asException());
-            } else {
-                responseObserver.onCompleted();
-            }
-        });
+        repository.findRangeByKey(request.getKeySince(), request.getKeyTo(), consumer)
+                .whenComplete((res, ex) -> {
+                    if (ex != null) {
+                        LOG.log(Level.WARNING, "Error getting values", ex);
+                        responseObserver.onError(Status.INTERNAL.withCause(ex).asException());
+                    } else {
+                        responseObserver.onCompleted();
+                    }
+                });
     }
 }

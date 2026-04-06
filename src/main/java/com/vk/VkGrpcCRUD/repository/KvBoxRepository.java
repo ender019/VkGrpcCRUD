@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 
 @Repository
@@ -51,26 +52,32 @@ public class KvBoxRepository {
     /**
      * range(since, to) - получение диапазона
      */
-    public void findRangeByKey(String startKey, String endKey, Consumer<Kv> consumer) {
-        var req = fetchRange(startKey, BoxIterator.GE);
-        List<Tuple<List<?>>> res = req.join().get();
-        String last = getLastKey(res);
+    public CompletableFuture<Void> findRangeByKey(String startKey, String endKey, Consumer<Kv> consumer) {
+        return processBatch(startKey, endKey, consumer, BoxIterator.GE);
+    }
 
-        while (last == null || last.compareTo(endKey) < 0) {
-            req = fetchRange(last, BoxIterator.GT);
+    private CompletableFuture<Void> processBatch(
+            String currentKey,
+            String endKey,
+            Consumer<Kv> consumer,
+            BoxIterator iterator
+    ) {
+        return fetchRange(currentKey, iterator).thenCompose(res -> {
+            var batch = res.get();
+            String last = getLastKey(batch);
 
-            res.stream()
+            if (last == null || last.compareTo(endKey) >= 0) {
+                batch.stream()
+                        .map(this::mapToKv)
+                        .takeWhile(key -> key.getKey().compareTo(currentKey) < 0)
+                        .forEach(consumer);
+                return CompletableFuture.completedFuture(null);
+            }
+            batch.stream()
                     .map(this::mapToKv)
                     .forEach(consumer);
-
-            res = req.join().get();
-            if (res == null) return;
-            last = getLastKey(res);
-        }
-        res.stream()
-                .map(this::mapToKv)
-                .takeWhile(cur -> cur.getKey().compareTo(endKey) < 0)
-                .forEach(consumer);
+            return processBatch(last, endKey, consumer, BoxIterator.GT);
+        });
     }
 
     /**
@@ -103,7 +110,7 @@ public class KvBoxRepository {
 
         // Метод replace заменяет существующий или вставляет новый (Upsert)
         boxClient.space(SPACE_NAME)
-                .upsert(Arrays.asList(kv.getKey(), kv.getValue()),  operations)
+                .upsert(Arrays.asList(kv.getKey(), kv.getValue()), operations)
                 .join();
     }
 
