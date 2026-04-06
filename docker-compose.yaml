@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+    tarantool:
+        image: tarantool/tarantool:3.2
+        container_name: tarantool_grpc_db
+        ports:
+            - "3301:3301"
+        volumes:
+            # Прокидываем скрипт инициализации
+            - ./src/main/resources/init.lua:/opt/tarantool/init.lua
+            # Папка для сохранения данных на диске (persistence)
+            - tarantool_data:/var/lib/tarantool
+        command: tarantool /opt/tarantool/init.lua
+        restart: always
+
+volumes:
+    tarantool_data:
