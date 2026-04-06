@@ -16,6 +16,8 @@ import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -70,24 +72,26 @@ public class KvServiceImpl extends KvServiceGrpc.KvServiceImplBase {
 
     @Override
     public void range(RangeRequest request, StreamObserver<KeyValueResponse> responseObserver) {
-        repository.streamRangeByKey(request.getKeySince(), request.getKeyTo(), kv -> {
-            KeyValueResponse grpcItem = KeyValueResponse.newBuilder()
-                    .setKey(kv.getKey())
-                    .setValue(kv.getValue() != null ? ByteString.copyFrom(kv.getValue()) : ByteString.EMPTY)
-                    .build();
-            responseObserver.onNext(grpcItem);
-        }).whenComplete((unused, ex) -> {
+        Consumer<Kv> consumer = kv -> {
+            var responseBuilder = KeyValueResponse.newBuilder();
+            if (kv.getValue() != null) {
+                responseBuilder.setValue(ByteString.copyFrom(kv.getValue()));
+            }
+            responseObserver.onNext(
+                    responseBuilder
+                            .setKey(kv.getKey())
+                            .build());
+        };
+
+        CompletableFuture.runAsync(
+                () -> repository.findRangeByKey(request.getKeySince(), request.getKeyTo(), consumer)
+        ).whenComplete((res, ex) -> {
             if (ex != null) {
-                // Если на любом этапе (в любой пачке) возникла ошибка
-                responseObserver.onError(Status.INTERNAL
-                        .withDescription("Error during streaming range")
-                        .withCause(ex)
-                        .asException());
+                LOG.log(Level.WARNING, "Error getting values", ex);
+                responseObserver.onError(Status.INTERNAL.withCause(ex).asException());
             } else {
-                // Когда все рекурсивные вызовы завершились успешно
                 responseObserver.onCompleted();
             }
-            responseObserver.onCompleted();
         });
     }
 }

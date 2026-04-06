@@ -4,6 +4,7 @@ import com.vk.VkGrpcCRUD.entity.Kv;
 import io.tarantool.client.box.TarantoolBoxClient;
 import io.tarantool.client.box.options.SelectOptions;
 import io.tarantool.core.protocol.BoxIterator;
+import io.tarantool.mapping.SelectResponse;
 import io.tarantool.mapping.Tuple;
 import org.springframework.stereotype.Repository;
 
@@ -19,7 +20,7 @@ import java.util.function.Consumer;
 public class KvBoxRepository {
 
     private static final String SPACE_NAME = "KV";
-    private static final int BATCH_SIZE = 1000;
+    int BATCH_SIZE = 100;
 
     private final TarantoolBoxClient boxClient;
 
@@ -50,51 +51,27 @@ public class KvBoxRepository {
     /**
      * range(since, to) - получение диапазона
      */
-    public CompletableFuture<Void> streamRangeByKey(String startKey, String endKey, Consumer<Kv> batchProcessor) {
-        return fetchRecursive(startKey, endKey, batchProcessor, BoxIterator.GE);
+    public void findRangeByKey(String startKey, String endKey, Consumer<Kv> consumer) {
+        var req = fetchRange(startKey, BoxIterator.GE);
+        List<Tuple<List<?>>> res = req.join().get();
+        String last = getLastKey(res);
+
+        while (last == null || last.compareTo(endKey) < 0) {
+            req = fetchRange(last, BoxIterator.GT);
+
+            res.stream()
+                    .map(this::mapToKv)
+                    .forEach(consumer);
+
+            res = req.join().get();
+            if (res == null) return;
+            last = getLastKey(res);
+        }
+        res.stream()
+                .map(this::mapToKv)
+                .takeWhile(cur -> cur.getKey().compareTo(endKey) < 0)
+                .forEach(consumer);
     }
-
-    private CompletableFuture<Void> fetchRecursive(String currentKey, String endKey,
-                                                   Consumer<Kv> batchProcessor,
-                                                   BoxIterator iteratorType) {
-
-        SelectOptions options = SelectOptions.builder()
-                .withIterator(iteratorType)
-                .withLimit(BATCH_SIZE)
-                .build();
-
-        return boxClient.space(SPACE_NAME)
-                .select(Collections.singletonList(currentKey), options)
-                .thenCompose(response -> {
-                    var data = response.get();
-
-                    if (data == null || data.isEmpty()) {
-                        return CompletableFuture.completedFuture(null);
-                    }
-
-                    String lastKeyInBatch = currentKey;
-                    boolean rangeLimitReached = false;
-
-                    for (var tuple : data) {
-                        Kv kv = mapToKv(tuple);
-
-                        if (kv.getKey().compareTo(endKey) > 0) {
-                            rangeLimitReached = true;
-                            break;
-                        }
-
-                        batchProcessor.accept(kv);
-                        lastKeyInBatch = kv.getKey();
-                    }
-
-                    if (rangeLimitReached || data.size() < BATCH_SIZE) {
-                        return CompletableFuture.completedFuture(null);
-                    }
-
-                    return fetchRecursive(lastKeyInBatch, endKey, batchProcessor, BoxIterator.GT);
-                });
-    }
-
 
     /**
      * delete(key)
@@ -140,5 +117,29 @@ public class KvBoxRepository {
         byte[] value = (byte[]) fields.get(1);
 
         return new Kv(key, value);
+    }
+
+    private CompletableFuture<SelectResponse<List<Tuple<List<?>>>>> fetchRange(
+            String startKey,
+            BoxIterator iteratorType
+    ) {
+        SelectOptions options = SelectOptions.builder()
+                .withIndex("primary")
+                .withIterator(iteratorType)
+                .withLimit(BATCH_SIZE)
+                .build();
+
+        return boxClient.space(SPACE_NAME)
+                .select(
+                        Collections.singletonList(startKey),
+                        options
+                );
+    }
+
+    private String getLastKey(List<Tuple<List<?>>> tuples) {
+        if (tuples == null || tuples.isEmpty()) return null;
+        var last = tuples.getLast().get();
+        if (last == null || last.isEmpty()) return null;
+        return last.getFirst().toString();
     }
 }
