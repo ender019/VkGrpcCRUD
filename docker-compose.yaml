@@ -3,16 +3,42 @@ version: '3.8'
 services:
     tarantool:
         image: tarantool/tarantool:3.2
-        container_name: tarantool_grpc_db
-        ports:
-            - "3301:3301"
+        container_name: tarantool_db
         volumes:
-            # Прокидываем скрипт инициализации
             - ./src/main/resources/init.lua:/opt/tarantool/init.lua
-            # Папка для сохранения данных на диске (persistence)
             - tarantool_data:/var/lib/tarantool
         command: tarantool /opt/tarantool/init.lua
-        restart: always
+        environment:
+          - TARANTOOL_USER_NAME=admin
+          - TARANTOOL_USER_PASSWORD=password
+        networks:
+            - default
+        healthcheck:
+            test: [ "CMD", "tt", "status" ]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    grpc-app:
+        build: .
+        container_name: crud_app
+        ports:
+            - "${GRPC_PORT}:9091"
+        depends_on:
+            tarantool:
+                condition: service_healthy
+        environment:
+            - TARANTOOL_HOST=${TARANTOOL_HOST}
+            - TARANTOOL_PORT=${TARANTOOL_PORT}
+            - TARANTOOL_USERNAME=${TARANTOOL_USERNAME}
+            - TARANTOOL_PASSWORD=${TARANTOOL_PASSWORD}
+            - GRPC_SERVER_PORT=${GRPC_PORT}
+        networks:
+            - default
 
 volumes:
     tarantool_data:
+
+networks:
+    default:
+        name: kv_network

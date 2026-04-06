@@ -1,3 +1,7 @@
+-- Считываем переменные окружения, которые передали через Docker Compose
+local user = os.getenv('TARANTOOL_USER_NAME') or 'admin'
+local pass = os.getenv('TARANTOOL_USER_PASSWORD') or
+
 -- Настройка памяти (для 5 000 000 записей выделим 2 ГБ, можно больше)
 box.cfg{
     listen = 3301,
@@ -7,7 +11,12 @@ box.cfg{
 
 -- Создание пользователя (если нужно отличаться от admin)
 box.once("init_user", function()
-    box.schema.user.passwd('admin', 'password')
+    if not box.schema.user.exists(user) then
+        box.schema.user.create(user, {password = pass})
+    else
+        box.schema.user.passwd(user, pass)
+    end
+    box.schema.user.grant(user, 'read,write,execute', 'universe', nil, {if_not_exists = true})
 end)
 
 -- Создание спейса KV и индекса

@@ -3,11 +3,13 @@ spring:
         name: VkGrpcCRUD
     data:
         tarantool:
-            host: "localhost"
-            port: 3301
-            username: "admin"
-            password: "password"
+            host: ${TARANTOOL_HOST:localhost}
+            port: ${TARANTOOL_PORT:3301}
+            username: ${TARANTOOL_USERNAME:admin}
+            password: ${TARANTOOL_PASSWORD:password}
 
 grpc:
     server:
-        port: 9090
+        port:
+            ${GRPC_SERVER_PORT:9091}
+
