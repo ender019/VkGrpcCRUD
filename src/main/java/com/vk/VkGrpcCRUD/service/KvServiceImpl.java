@@ -12,6 +12,7 @@ import com.vk.VkGrpcCRUD.grpc.KvServiceGrpc;
 import com.vk.VkGrpcCRUD.grpc.PutRequest;
 import com.vk.VkGrpcCRUD.grpc.RangeRequest;
 import com.vk.VkGrpcCRUD.repository.KvBoxRepository;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
 
@@ -69,18 +70,24 @@ public class KvServiceImpl extends KvServiceGrpc.KvServiceImplBase {
 
     @Override
     public void range(RangeRequest request, StreamObserver<KeyValueResponse> responseObserver) {
-        var res = repository.findRangeByKey(request.getKeySince(), request.getKeyTo());
-
-        res.forEach(kv -> {
-            var responseBuilder = KeyValueResponse.newBuilder();
-            if (kv.getValue() != null) {
-                responseBuilder.setValue(ByteString.copyFrom(kv.getValue()));
+        repository.streamRangeByKey(request.getKeySince(), request.getKeyTo(), kv -> {
+            KeyValueResponse grpcItem = KeyValueResponse.newBuilder()
+                    .setKey(kv.getKey())
+                    .setValue(kv.getValue() != null ? ByteString.copyFrom(kv.getValue()) : ByteString.EMPTY)
+                    .build();
+            responseObserver.onNext(grpcItem);
+        }).whenComplete((unused, ex) -> {
+            if (ex != null) {
+                // Если на любом этапе (в любой пачке) возникла ошибка
+                responseObserver.onError(Status.INTERNAL
+                        .withDescription("Error during streaming range")
+                        .withCause(ex)
+                        .asException());
+            } else {
+                // Когда все рекурсивные вызовы завершились успешно
+                responseObserver.onCompleted();
             }
-            responseObserver.onNext(
-                    responseBuilder
-                            .setKey(kv.getKey())
-                            .build());
+            responseObserver.onCompleted();
         });
-        responseObserver.onCompleted();
     }
 }
