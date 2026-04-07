@@ -6,6 +6,8 @@ import io.tarantool.client.box.options.SelectOptions;
 import io.tarantool.core.protocol.BoxIterator;
 import io.tarantool.mapping.SelectResponse;
 import io.tarantool.mapping.Tuple;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import java.util.Arrays;
@@ -19,8 +21,7 @@ import java.util.function.Consumer;
 /**
  * Репозиторий для управления данными в спейсе "KV" базы данных Tarantool.
  * <p>
- * Реализует высокопроизводительные методы доступа к данным, адаптированные для работы
- * со структурами объемом более 5 000 000 записей. Основной упор сделан на
+ * Реализует высокопроизводительные методы доступа к данным. Основной упор сделан на
  * асинхронность и эффективное использование оперативной памяти при стриминге данных.
  * </p>
  *
@@ -37,6 +38,7 @@ public class KvBoxRepository {
      */
     private static final int BATCH_SIZE = 100;
 
+    private static final Logger LOG = LoggerFactory.getLogger(KvBoxRepository.class);
     private final TarantoolBoxClient boxClient;
 
     /**
@@ -69,6 +71,7 @@ public class KvBoxRepository {
         List<Tuple<List<?>>> data = response.get();
 
         if (data == null || data.isEmpty()) {
+            LOG.debug("No data found for key {}", key);
             return Optional.empty();
         }
 
@@ -78,7 +81,7 @@ public class KvBoxRepository {
     /**
      * Выполняет асинхронный поиск диапазона ключей с использованием стриминга.
      * <p>
-     * Для предотвращения OutOfMemoryError при работе с 5 000 000+ записей, данные
+     * Для предотвращения OutOfMemoryError, данные
      * вычитываются из Tarantool пачками (Batching) и передаются в {@code Consumer} по мере поступления.
      * </p>
      *
@@ -88,6 +91,7 @@ public class KvBoxRepository {
      * @return {@link CompletableFuture<Void>}, который завершится по окончании обработки всего диапазона.
      */
     public CompletableFuture<Void> findRangeByKey(String startKey, String endKey, Consumer<Kv> consumer) {
+        LOG.debug("findRangeByKey startKey={} endKey={}", startKey, endKey);
         return processBatch(startKey, endKey, consumer, BoxIterator.GE);
     }
 
@@ -114,7 +118,8 @@ public class KvBoxRepository {
             var batch = res.get();
             String last = getLastKey(batch);
 
-            if (last == null || last.compareTo(endKey) >= 0) {
+            if (last == null || batch.size() < BATCH_SIZE || last.compareTo(endKey) >= 0) {
+                LOG.debug("End of batch found for key {}", last);
                 batch.stream()
                         .map(this::mapToKv)
                         .takeWhile(key -> key.getKey().compareTo(endKey) <= 0)
@@ -152,7 +157,10 @@ public class KvBoxRepository {
     public Long count() {
         var result = boxClient.eval(String.format("return box.space.%s.index.primary:count()", SPACE_NAME)).join().get();
 
-        if (result == null || result.isEmpty()) return 0L;
+        if (result == null || result.isEmpty()) {
+            LOG.error("No data found for key {}", SPACE_NAME);
+            return 0L;
+        }
 
         return ((Number) result.getFirst()).longValue();
     }
