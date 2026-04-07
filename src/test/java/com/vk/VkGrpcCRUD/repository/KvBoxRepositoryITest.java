@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -35,7 +36,25 @@ class KvBoxRepositoryITest extends TarantoolTestConfig {
     }
 
     @Test
-    @DisplayName("Должен корректно работать с NULL значениями (Требование ТЗ)")
+    @DisplayName("Должен сохранять и возвращать значение null")
+    void shouldPutAndGetNull() {
+        String key = "test_null_key";
+        byte[] value = null;
+
+        // Ключа нет.
+        var unexist = repository.findByKey(key);
+        assertFalse(unexist.isPresent());
+
+        repository.save(new Kv(key, value));
+        Optional<Kv> result = repository.findByKey(key);
+
+        // Значение ключа null
+        assertTrue(result.isPresent());
+        assertEquals(value, result.get().getValue());
+    }
+
+    @Test
+    @DisplayName("Должен корректно работать с NULL значениями")
     void shouldHandleNullValue() {
         String key = "null_key";
 
@@ -48,7 +67,7 @@ class KvBoxRepositoryITest extends TarantoolTestConfig {
     }
 
     @Test
-    @DisplayName("Должен перезаписывать значение для существующих ключей (Требование ТЗ)")
+    @DisplayName("Должен перезаписывать значение для существующих ключей")
     void shouldOverwriteExistingKey() {
         String key = "overwrite_key";
         byte[] firstVal = "first".getBytes();
@@ -58,6 +77,7 @@ class KvBoxRepositoryITest extends TarantoolTestConfig {
         repository.save(new Kv(key, secondVal)); // Перезапись
 
         Optional<Kv> result = repository.findByKey(key);
+        assertTrue(result.isPresent());
         assertArrayEquals(secondVal, result.get().getValue());
     }
 
@@ -81,6 +101,20 @@ class KvBoxRepositoryITest extends TarantoolTestConfig {
         repository.deleteByKey(key);
 
         Optional<Kv> result = repository.findByKey(key);
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    @DisplayName("Должен удалять запись")
+    void shouldDeleteUnexistKey() {
+        String key = "delete_unexist";
+
+        Optional<Kv> result = repository.findByKey(key);
+        assertFalse(result.isPresent());
+
+        assertDoesNotThrow(() -> repository.deleteByKey(key));
+
+        result = repository.findByKey(key);
         assertFalse(result.isPresent());
     }
 
