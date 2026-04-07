@@ -64,12 +64,42 @@ public class KvServiceImplITest {
     }
 
     @Test
-    @DisplayName("GET: Тест получения данных и обработки NULL (ТЗ)")
+    @DisplayName("PUT: Тест передачи null через сеть до мока")
+    void testPutNullIntegration() {
+        String key = "test_key";
+        byte[] value = null;
+
+        Mockito.doNothing().when(repository).save(new Kv(key, value));
+
+        PutRequest request = PutRequest.newBuilder()
+                .setKey(key)
+                .build();
+
+        assertDoesNotThrow(() -> blockingStub.put(request));
+
+        Mockito.verify(repository).save(Mockito.argThat(kv ->
+                kv.getKey().equals(key) && java.util.Arrays.equals(kv.getValue(), value)
+        ));
+    }
+
+    @Test
+    @DisplayName("GET: Тест получения данных и обработки NULL")
     void testGetWithNullValue() {
         String key = "null_key";
         Mockito.doReturn(Optional.of(new Kv(key, null))).when(repository).findByKey(key);
 
         GetResponse response = blockingStub.get(GetRequest.newBuilder().setKey(key).build());
+
+        assertFalse(response.hasValue(), "В gRPC ответе поле value не должно быть установлено для NULL из БД");
+    }
+
+    @Test
+    @DisplayName("GET: Тест null ключа")
+    void testGetWithNullKey() {
+        String key = null;
+        Mockito.doReturn(Optional.of(new Kv(key, null))).when(repository).findByKey(key);
+
+        GetResponse response = blockingStub.get(GetRequest.newBuilder().build());
 
         assertFalse(response.hasValue(), "В gRPC ответе поле value не должно быть установлено для NULL из БД");
     }
@@ -85,7 +115,7 @@ public class KvServiceImplITest {
     }
 
     @Test
-    @DisplayName("RANGE: Тест сетевого стриминга (5 000 000 записей)")
+    @DisplayName("RANGE: Тест сетевого стриминга")
     @SuppressWarnings("unchecked")
     void testRangeStreamingIntegration() {
         String since = "a";
@@ -125,6 +155,6 @@ public class KvServiceImplITest {
                 blockingStub.get(GetRequest.newBuilder().setKey("error").build())
         );
 
-        assertEquals(Status.Code.UNKNOWN, exception.getStatus().getCode());
+        assertEquals(Status.Code.INTERNAL, exception.getStatus().getCode());
     }
 }
